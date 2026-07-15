@@ -16,8 +16,8 @@ library(openxlsx)
 # =============================================================================
 # 1. LOAD DATA
 # =============================================================================
-df_exp <- read_excel("./COMPLETE.xlsx",     sheet = "Sheet1")
-df_imp <- read_excel("./COMPLETE_IMP.xlsx", sheet = "Sheet1")
+df_exp <- read_excel("./R/COMPLETE.xlsx",     sheet = "Sheet1")
+df_imp <- read_excel("./R/COMPLETE_IMP.xlsx", sheet = "Sheet1")
 
 # Numeric conversions
 to_num <- function(df, cols) {

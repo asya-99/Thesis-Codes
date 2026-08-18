@@ -152,16 +152,16 @@ p2 <- ggplot(annual_long,
   geom_hline(yintercept=0, linetype="dashed", colour="grey50", alpha=0.5) +
   scale_colour_manual(
     values=c(
-      "Domestic GVA — OECD"    = "#2166ac",
-      "Domestic GVA — Non-OECD"= "#2166ac",
-      "Foreign GVA — OECD"     = "#d73027",
+      "Domestic GVA — OECD"    = "#0c71e49d",
+      "Domestic GVA — Non-OECD"= "#d73027bb",
+      "Foreign GVA — OECD"     = "#0c71e4",
       "Foreign GVA — Non-OECD" = "#d73027"
     )) +
   scale_linetype_manual(
     values=c(
       "Domestic GVA — OECD"    = "solid",
-      "Domestic GVA — Non-OECD"= "dashed",
-      "Foreign GVA — OECD"     = "solid",
+      "Domestic GVA — Non-OECD"= "solid",
+      "Foreign GVA — OECD"     = "dashed",
       "Foreign GVA — Non-OECD" = "dashed"
     )) +
   scale_x_continuous(breaks=seq(2014, 2022, 1)) +

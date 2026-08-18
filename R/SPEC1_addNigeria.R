@@ -95,9 +95,9 @@ for (pol in c("EPS","EPI")) {
 # =============================================================================
 # 5. COUNTRY AND RESOURCE-RICH SUBSETS
 # =============================================================================
-df_oecd    <- df[df$REF_AREA %in% oecd_iso3,]
+df_oecd    <- df[df$REF_AREA %in% oecd_iso3, ]
 df_eu      <- df[df$REF_AREA %in% eu_iso3, ]
-df_nonoecd <- df[!df$REF_AREA %in% oecd_iso3, ]
+df_nonoecd <- df[!df$REF_AREA %in% oecd_iso3 & df$REF_AREA != "CHN", ]
 
 oil_avg <- tapply(df_nonoecd$OIL_RENTS, df_nonoecd$REF_AREA, mean, na.rm=TRUE)
 oil_df  <- data.frame(REF_AREA=names(oil_avg),
@@ -122,22 +122,22 @@ cat("\nOECD:", length(unique(df_oecd$REF_AREA)),
 # =============================================================================
 # 6. PPML ESTIMATOR — single policy variable
 # =============================================================================
-ppml_single <- function(y, pol, gdp, trade, oil, fin,
+ppml_single <- function(y, pol, gdp, oil, fin,
                          country, year) {
   keep <- !is.na(y) & !is.na(pol) &
-          !is.na(gdp) & !is.na(trade) &
+          !is.na(gdp) &
           !is.na(oil) & !is.na(fin) &
           !is.na(country) & !is.na(year) & y >= 0
   y<-y[keep]; pol<-pol[keep]
-  gdp<-gdp[keep]; trade<-trade[keep]
+  gdp<-gdp[keep]
   oil<-oil[keep]; fin<-fin[keep]; country<-country[keep]; year<-year[keep]
   n <- length(y)
   if (n < 10 || length(unique(country)) < 3) return(NULL)
-  gdp<-log(gdp+1); trade<-scale(trade)[,1]
+  gdp<-log(gdp+1)
   oil<-scale(oil)[,1]; fin<-scale(fin)[,1]
   cf <- relevel(factor(country), ref=levels(factor(country))[1])
   yf <- relevel(factor(year),    ref=levels(factor(year))[1])
-  Xc <- model.matrix(~gdp+trade+oil+fin+cf+yf-1)
+  Xc <- model.matrix(~gdp+oil+fin+cf+yf-1)
   X  <- cbind(pol=pol, Xc)
   fit <- tryCatch(
     glm.fit(x=X, y=y, family=poisson(link="log"),
@@ -163,23 +163,20 @@ ppml_single <- function(y, pol, gdp, trade, oil, fin,
 # =============================================================================
 # 7. OLS WITHIN FE — single policy variable (for ratio)
 # =============================================================================
-ols_single <- function(y, pol, gdp, trade, oil, fin,
+ols_single <- function(y, pol, gdp, oil, fin,
                         country, year) {
   keep <- !is.na(y) & !is.na(pol) &
-          !is.na(gdp) & !is.na(trade) &
-          !is.na(oil) & !is.na(fin) &
+          !is.na(gdp) & !is.na(oil) & !is.na(fin) &
           !is.na(country) & !is.na(year) & is.finite(y)
   y<-y[keep]; pol<-pol[keep]
-  gdp<-log(gdp[keep]+1); trade<-scale(trade[keep])[,1]
-  oil<-scale(oil[keep])[,1]; fin<-scale(fin[keep])[,1]
+  gdp<-log(gdp[keep]+1); oil<-scale(oil[keep])[,1]; fin<-scale(fin[keep])[,1]
   country<-country[keep]; year<-year[keep]
   n<-length(y)
   if (n < 10 || length(unique(country)) < 3) return(NULL)
   dm<-function(x){ grand<-mean(x); cm<-ave(x,country,FUN=mean)
     ym<-ave(x,year,FUN=mean); x-cm-ym+grand }
-  yw<-dm(y); pw<-dm(pol); gw<-dm(gdp); tw<-dm(trade)
-  ow<-dm(oil); fw<-dm(fin)
-  fit<-lm(yw~pw+gw+tw+ow+fw-1)
+  yw<-dm(y); pw<-dm(pol); gw<-dm(gdp); ow<-dm(oil); fw<-dm(fin)
+  fit<-lm(yw~pw+gw+ow+fw-1)
   X<-model.matrix(fit); e<-residuals(fit)
   Xi<-tryCatch(solve(t(X)%*%X), error=function(e) NULL)
   if (is.null(Xi)) return(NULL)
@@ -216,12 +213,12 @@ run_one <- function(df_sub, pol_col, dep, label) {
            y<-pmin(r,p99); est<-"ols" }
     res <- if (est=="ppml")
       ppml_single(y, df_sub[[pol_col]],
-                  df_sub$GDP, df_sub$TRADE,
+                  df_sub$GDP,
                   df_sub$OIL_RENTS, df_sub$FINANCIAL_DEVELOPMENT,
                   df_sub$REF_AREA, df_sub$TIME_PERIOD)
     else
       ols_single(y, df_sub[[pol_col]],
-                 df_sub$GDP, df_sub$TRADE,
+                 df_sub$GDP,
                  df_sub$OIL_RENTS, df_sub$FINANCIAL_DEVELOPMENT,
                  df_sub$REF_AREA, df_sub$TIME_PERIOD)
     lbl <- ifelse(ind %in% names(industry_labels), industry_labels[ind], ind)
@@ -364,7 +361,7 @@ add_sheet(wb, "PULL EPI Ratio t",    pull_rat_t)
 add_sheet(wb, "PULL EPI Ratio l1",   pull_rat_l1)
 add_sheet(wb, "PULL EPI Ratio l2",   pull_rat_l2)
 
-saveWorkbook(wb, "PPML_Spec1_bylags.xlsx", overwrite=TRUE)
+saveWorkbook(wb, "PPML_Spec1_addNigeria.xlsx", overwrite=TRUE)
 cat("\nSaved: PPML_Spec1_bylags.xlsx\n")
 
 # =============================================================================
@@ -389,7 +386,7 @@ cat("\nSaved: PPML_Spec1_bylags.xlsx\n")
 # =============================================================================
 # COUNTRY COVERAGE REPORT — prints after Excel is saved
 # =============================================================================
-controls <- c("GDP","TRADE","OIL_RENTS","FINANCIAL_DEVELOPMENT")
+controls <- c("GDP","OIL_RENTS","FINANCIAL_DEVELOPMENT")
 
 # Helper: returns countries that have at least 3 complete rows
 # (minimum needed to enter any model)
@@ -434,6 +431,7 @@ cat("\n")
 if (length(oecd_dropped) > 0) {
   d_eps <- sort(intersect(oecd_dropped, miss_eps))
   d_fd  <- sort(intersect(oecd_dropped, miss_fd))
+  d_ip  <- sort(intersect(oecd_dropped, miss_ip))
   if (length(d_eps) > 0) cat("  -- Missing EPS entirely          :", paste(d_eps, collapse=", "), "\n")
   if (length(d_fd)  > 0) cat("  -- Missing Financial Development :", paste(d_fd,  collapse=", "), "\n")
 }
@@ -460,6 +458,7 @@ cat("\n")
 if (length(eu_dropped) > 0) {
   d_eps <- sort(intersect(eu_dropped, miss_eps_eu))
   d_fd  <- sort(intersect(eu_dropped, miss_fd_eu))
+  d_ip  <- sort(intersect(eu_dropped, miss_ip_eu))
   if (length(d_eps) > 0) cat("  -- Missing EPS entirely          :", paste(d_eps, collapse=", "), "\n")
   if (length(d_fd)  > 0) cat("  -- Missing Financial Development :", paste(d_fd,  collapse=", "), "\n")
 }
@@ -487,6 +486,7 @@ cat("\n")
 if (length(noecd_dropped) > 0) {
   d_epi <- sort(intersect(noecd_dropped, miss_epi))
   d_fd  <- sort(intersect(noecd_dropped, miss_fd2))
+  d_ip  <- sort(intersect(noecd_dropped, miss_ip2))
   if (length(d_epi) > 0) cat("  -- Missing EPI entirely          :", paste(d_epi, collapse=", "), "\n")
   if (length(d_fd)  > 0) cat("  -- Missing Financial Development :", paste(d_fd,  collapse=", "), "\n")
 }

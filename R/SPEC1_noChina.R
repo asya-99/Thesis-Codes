@@ -95,7 +95,7 @@ for (pol in c("EPS","EPI")) {
 # =============================================================================
 # 5. COUNTRY AND RESOURCE-RICH SUBSETS
 # =============================================================================
-df_oecd    <- df[df$REF_AREA %in% oecd_iso3,]
+df_oecd    <- df[df$REF_AREA %in% oecd_iso3 & df$REF_AREA != "CHN",]
 df_eu      <- df[df$REF_AREA %in% eu_iso3, ]
 df_nonoecd <- df[!df$REF_AREA %in% oecd_iso3, ]
 
@@ -364,7 +364,7 @@ add_sheet(wb, "PULL EPI Ratio t",    pull_rat_t)
 add_sheet(wb, "PULL EPI Ratio l1",   pull_rat_l1)
 add_sheet(wb, "PULL EPI Ratio l2",   pull_rat_l2)
 
-saveWorkbook(wb, "PPML_Spec1_bylags.xlsx", overwrite=TRUE)
+saveWorkbook(wb, "PPML_Spec1_noChina.xlsx", overwrite=TRUE)
 cat("\nSaved: PPML_Spec1_bylags.xlsx\n")
 
 # =============================================================================

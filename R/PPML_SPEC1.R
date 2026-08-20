@@ -3,14 +3,11 @@
 # Each model uses ONE policy variable at a time (t, l1, or l2 separately)
 # PUSH: EPS x Domestic GVA (OECD + EU)
 # PULL: EPI x Foreign GVA  (non-OECD + oil rent subsets)
-# PUSH: EPS x Ratio        (OECD + EU)
-# PULL: EPI x Ratio        (non-OECD + oil rent subsets)
+# 
 #
 # Output sheets (one regression per sheet):
 #   PUSH EPS Dom GVA t       PUSH EPS Dom GVA l1      PUSH EPS Dom GVA l2
-#   PUSH EPS Ratio t         PUSH EPS Ratio l1         PUSH EPS Ratio l2
 #   PULL EPI For GVA t       PULL EPI For GVA l1       PULL EPI For GVA l2
-#   PULL EPI Ratio t         PULL EPI Ratio l1          PULL EPI Ratio l2
 # =============================================================================
 
 library(readxl)
@@ -28,7 +25,7 @@ oecd_iso3 <- c(
 eu_iso3 <- c(
   "AUT","BEL","BGR","HRV","CYP","CZE","DNK","EST","FIN","FRA",
   "DEU","GRC","HUN","IRL","ITA","LVA","LTU","LUX","MLT","NLD",
-  "POL","PRT","ROU","SVK","SVN","ESP","SWE"
+  "POL","PRT","ROU","SVK","SVN","ESP","GBR","SWE"
 )
 fossil_codes    <- c("B05T09","C19","C20","C23","C24","C17T18","D35_E36T39")
 drop_industries <- c("O84","T97T98")
@@ -36,14 +33,14 @@ drop_industries <- c("O84","T97T98")
 # =============================================================================
 # 2. LOAD AND PREPARE DATA
 # =============================================================================
-df <- read_excel("COMPLETE_GVA.xlsx", sheet = "Sheet1")
+df <- read_excel("INPUT/COMPLETE_GVA.xlsx", sheet = "Sheet1")
 names(df) <- trimws(names(df))
 for (col in names(df)[!names(df) %in% c("REF_AREA","TIME_PERIOD")])
-  df[[col]] <- suppressWarnings(as.numeric(df[[col]]))
+  df[[col]] <- as.numeric(df[[col]])
 df$TIME_PERIOD <- as.numeric(df$TIME_PERIOD)
 df <- df[order(df$REF_AREA, df$TIME_PERIOD), ]
-cat("GVA rows:", nrow(df), "| Countries:", length(unique(df$REF_AREA)),
-    "| Years:", paste(range(df$TIME_PERIOD, na.rm=TRUE), collapse="-"), "\n")
+# cat("GVA rows:", nrow(df), "| Countries:", length(unique(df$REF_AREA)),
+#     "| Years:", paste(range(df$TIME_PERIOD, na.rm=TRUE), collapse="-"), "\n")
 
 # =============================================================================
 # 3. INDUSTRY CODES
@@ -78,10 +75,11 @@ industry_labels <- c(
 # =============================================================================
 # 4. LAGS
 # =============================================================================
-lag_within <- function(x, grp, k = 1) {
+lag_within <- function(x, grp, k ) {
   out <- rep(NA, length(x))
   for (g in unique(grp)) {
-    idx <- which(grp == g); v <- x[idx]
+    idx <- which(grp == g) 
+    v <- x[idx]
     out[idx] <- c(rep(NA, k), v[seq_len(length(v) - k)])
   }
   out
@@ -101,23 +99,23 @@ df_nonoecd <- df[!df$REF_AREA %in% oecd_iso3, ]
 
 oil_avg <- tapply(df_nonoecd$OIL_RENTS, df_nonoecd$REF_AREA, mean, na.rm=TRUE)
 oil_df  <- data.frame(REF_AREA=names(oil_avg),
-                      mean_oil=round(as.numeric(oil_avg),2),
-                      stringsAsFactors=FALSE)
+                      mean_oil=round(as.numeric(oil_avg),2)
+                      ) # stringsAsFactors=FALSE)
 oil_df  <- oil_df[order(-oil_df$mean_oil),]
-sub_2   <- oil_df$REF_AREA[oil_df$mean_oil > 2]
-sub_1   <- oil_df$REF_AREA[oil_df$mean_oil > 1]
+oil_2   <- oil_df$REF_AREA[oil_df$mean_oil > 2]
+oil_1   <- oil_df$REF_AREA[oil_df$mean_oil > 1]
 
 # CRITICAL: filter from df_nonoecd not df
 # to ensure OECD countries with high oil rents (Norway, Canada, Mexico)
 # do not accidentally enter the pull-side resource-rich subsets
-df_rent2 <- df_nonoecd[df_nonoecd$REF_AREA %in% sub_2, ]
-df_rent1 <- df_nonoecd[df_nonoecd$REF_AREA %in% sub_1, ]
+df_rent2 <- df_nonoecd[df_nonoecd$REF_AREA %in% oil_2, ]
+df_rent1 <- df_nonoecd[df_nonoecd$REF_AREA %in% oil_1, ]
 
 cat("\nOECD:", length(unique(df_oecd$REF_AREA)),
     "| EU:", length(unique(df_eu$REF_AREA)),
     "| nonOECD:", length(unique(df_nonoecd$REF_AREA)),
-    "| Rents>2%:", length(sub_2),
-    "| Rents>1%:", length(sub_1), "\n")
+    "| Rents>2%:", length(oil_2),
+    "| Rents>1%:", length(oil_1), "\n")
 
 # =============================================================================
 # 6. PPML ESTIMATOR — single policy variable
@@ -158,43 +156,6 @@ ppml_single <- function(y, pol, gdp, trade, oil, fin,
                ifelse(p<.05,"*",ifelse(p<.10,".","ns"))))
   list(coef=round(cv,4), se=round(sv,4), sig=st(pv),
        z=round(zv,3), p=round(pv,4), n=n, G=G)
-}
-
-# =============================================================================
-# 7. OLS WITHIN FE — single policy variable (for ratio)
-# =============================================================================
-ols_single <- function(y, pol, gdp, trade, oil, fin,
-                        country, year) {
-  keep <- !is.na(y) & !is.na(pol) &
-          !is.na(gdp) & !is.na(trade) &
-          !is.na(oil) & !is.na(fin) &
-          !is.na(country) & !is.na(year) & is.finite(y)
-  y<-y[keep]; pol<-pol[keep]
-  gdp<-log(gdp[keep]+1); trade<-scale(trade[keep])[,1]
-  oil<-scale(oil[keep])[,1]; fin<-scale(fin[keep])[,1]
-  country<-country[keep]; year<-year[keep]
-  n<-length(y)
-  if (n < 10 || length(unique(country)) < 3) return(NULL)
-  dm<-function(x){ grand<-mean(x); cm<-ave(x,country,FUN=mean)
-    ym<-ave(x,year,FUN=mean); x-cm-ym+grand }
-  yw<-dm(y); pw<-dm(pol); gw<-dm(gdp); tw<-dm(trade)
-  ow<-dm(oil); fw<-dm(fin)
-  fit<-lm(yw~pw+gw+tw+ow+fw-1)
-  X<-model.matrix(fit); e<-residuals(fit)
-  Xi<-tryCatch(solve(t(X)%*%X), error=function(e) NULL)
-  if (is.null(Xi)) return(NULL)
-  k<-ncol(X); B<-matrix(0,k,k)
-  for (ct in unique(country)) {
-    i<-country==ct; Xc<-X[i,,drop=FALSE]; ec<-e[i]
-    s<-t(Xc)%*%ec; B<-B+s%*%t(s) }
-  G<-length(unique(country)); adj<-(G/(G-1))*((n-1)/(n-k))
-  V<-adj*Xi%*%B%*%Xi
-  cv<-coef(fit)["pw"]; sv<-sqrt(max(V[1,1],0))
-  tv<-cv/sv; pv<-2*pt(-abs(tv),df=G-1)
-  st<-function(p) ifelse(p<.001,"***",ifelse(p<.01,"**",
-               ifelse(p<.05,"*",ifelse(p<.10,".","ns"))))
-  list(coef=round(cv,4), se=round(sv,4), sig=st(pv),
-       z=round(tv,3), p=round(pv,4), n=n, G=G)
 }
 
 # =============================================================================
@@ -298,20 +259,11 @@ push_dom_t  <- run_lag("EPS",      "Domestic", "push")
 push_dom_l1 <- run_lag("EPS_lag1", "Domestic", "push")
 push_dom_l2 <- run_lag("EPS_lag2", "Domestic", "push")
 
-cat("\n=== PUSH: EPS x Ratio ===\n")
-push_rat_t  <- run_lag("EPS",      "Ratio", "push")
-push_rat_l1 <- run_lag("EPS_lag1", "Ratio", "push")
-push_rat_l2 <- run_lag("EPS_lag2", "Ratio", "push")
-
 cat("\n=== PULL: EPI x Foreign GVA ===\n")
 pull_for_t  <- run_lag("EPI",      "Foreign", "pull")
 pull_for_l1 <- run_lag("EPI_lag1", "Foreign", "pull")
 pull_for_l2 <- run_lag("EPI_lag2", "Foreign", "pull")
 
-cat("\n=== PULL: EPI x Ratio ===\n")
-pull_rat_t  <- run_lag("EPI",      "Ratio", "pull")
-pull_rat_l1 <- run_lag("EPI_lag1", "Ratio", "pull")
-pull_rat_l2 <- run_lag("EPI_lag2", "Ratio", "pull")
 
 # =============================================================================
 # 11. EXCEL EXPORT
@@ -354,15 +306,11 @@ add_sheet <- function(wb, name, data) {
 add_sheet(wb, "PUSH EPS Dom GVA t",  push_dom_t)
 add_sheet(wb, "PUSH EPS Dom GVA l1", push_dom_l1)
 add_sheet(wb, "PUSH EPS Dom GVA l2", push_dom_l2)
-add_sheet(wb, "PUSH EPS Ratio t",    push_rat_t)
-add_sheet(wb, "PUSH EPS Ratio l1",   push_rat_l1)
-add_sheet(wb, "PUSH EPS Ratio l2",   push_rat_l2)
+
 add_sheet(wb, "PULL EPI For GVA t",  pull_for_t)
 add_sheet(wb, "PULL EPI For GVA l1", pull_for_l1)
 add_sheet(wb, "PULL EPI For GVA l2", pull_for_l2)
-add_sheet(wb, "PULL EPI Ratio t",    pull_rat_t)
-add_sheet(wb, "PULL EPI Ratio l1",   pull_rat_l1)
-add_sheet(wb, "PULL EPI Ratio l2",   pull_rat_l2)
+
 
 saveWorkbook(wb, "PPML_Spec1_bylags.xlsx", overwrite=TRUE)
 cat("\nSaved: PPML_Spec1_bylags.xlsx\n")
@@ -377,9 +325,6 @@ cat("\nSaved: PPML_Spec1_bylags.xlsx\n")
 #
 # SHEET GUIDE (12 sheets):
 #   PUSH EPS Dom GVA t/l1/l2  — EPS at t / lag1 / lag2 x Domestic GVA, OECD+EU
-#   PUSH EPS Ratio t/l1/l2    — EPS at t / lag1 / lag2 x For/Dom ratio, OECD+EU
-#   PULL EPI For GVA t/l1/l2  — EPI at t / lag1 / lag2 x Foreign GVA, 3 subsets
-#   PULL EPI Ratio t/l1/l2    — EPI at t / lag1 / lag2 x For/Dom ratio, 3 subsets
 #
 # Pull subsets: All_nonOECD (27 ctys) | Rents_2pct (8 ctys) | Rents_1pct (12 ctys)
 # Fossil industries amber at top | red=negative | green=positive

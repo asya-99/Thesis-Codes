@@ -11,8 +11,6 @@
 #
 # PUSH: EPI x Domestic GVA (OECD + EU)
 # PULL: EPI x Foreign GVA  (non-OECD + Rents>2% + Rents>1%)
-# PUSH: EPI x Ratio        (OECD + EU)
-# PULL: EPI x Ratio        (non-OECD + Rents>2% + Rents>1%)
 #
 # 12 output sheets + country coverage report printed to console
 # Saved to: PPML_Spec2_bylags.xlsx
@@ -34,7 +32,7 @@ oecd_iso3 <- c(
 eu_iso3 <- c(
   "AUT","BEL","BGR","HRV","CYP","CZE","DNK","EST","FIN","FRA",
   "DEU","GRC","HUN","IRL","ITA","LVA","LTU","LUX","MLT","NLD",
-  "POL","PRT","ROU","SVK","SVN","ESP","SWE"
+  "POL","PRT","ROU","SVK","SVN","ESP","SWE","GBR"
 )
 fossil_codes    <- c("B05T09","C19","C20","C23","C24","C17T18","D35_E36T39")
 drop_industries <- c("O84","T97T98")
@@ -42,10 +40,10 @@ drop_industries <- c("O84","T97T98")
 # =============================================================================
 # 2. LOAD AND PREPARE DATA
 # =============================================================================
-df <- read_excel("COMPLETE_GVA.xlsx", sheet = "Sheet1")
+df <- read_excel("INPUT/COMPLETE_GVA.xlsx", sheet = "Sheet1")
 names(df) <- trimws(names(df))
 for (col in names(df)[!names(df) %in% c("REF_AREA","TIME_PERIOD")])
-  df[[col]] <- suppressWarnings(as.numeric(df[[col]]))
+  df[[col]] <- as.numeric(df[[col]])
 df$TIME_PERIOD <- as.numeric(df$TIME_PERIOD)
 df <- df[order(df$REF_AREA, df$TIME_PERIOD), ]
 cat("GVA rows:", nrow(df),
@@ -173,43 +171,6 @@ ppml_single <- function(y, pol, gdp, trade, oil, country, year) {
        z=round(zv,3), p=round(pv,4), n=n, G=G)
 }
 
-# =============================================================================
-# 7. OLS WITH WITHIN FE — for ratio (continuous, can be negative)
-# =============================================================================
-ols_single <- function(y, pol, gdp, trade, oil, country, year) {
-  keep <- !is.na(y) & !is.na(pol) &
-          !is.na(gdp) & !is.na(trade) & !is.na(oil) &
-          !is.na(country) & !is.na(year) & is.finite(y)
-  y<-y[keep]; pol<-pol[keep]
-  gdp   <- log(gdp[keep] + 1)
-  trade <- scale(trade[keep])[, 1]
-  oil   <- scale(oil[keep])[, 1]
-  country<-country[keep]; year<-year[keep]
-  n <- length(y)
-  if (n < 10 || length(unique(country)) < 3) return(NULL)
-  dm <- function(x) {
-    grand <- mean(x); cm <- ave(x, country, FUN=mean)
-    ym    <- ave(x, year, FUN=mean); x - cm - ym + grand }
-  yw <- dm(y); pw <- dm(pol); gw <- dm(gdp)
-  tw <- dm(trade); ow <- dm(oil)
-  fit <- lm(yw ~ pw + gw + tw + ow - 1)
-  X   <- model.matrix(fit); e <- residuals(fit)
-  Xi  <- tryCatch(solve(t(X)%*%X), error=function(e) NULL)
-  if (is.null(Xi)) return(NULL)
-  k <- ncol(X); B <- matrix(0, k, k)
-  for (ct in unique(country)) {
-    i <- country==ct; Xc <- X[i,,drop=FALSE]; ec <- e[i]
-    s <- t(Xc)%*%ec; B <- B + s%*%t(s) }
-  G   <- length(unique(country))
-  adj <- (G/(G-1)) * ((n-1)/(n-k))
-  V   <- adj * Xi %*% B %*% Xi
-  cv  <- coef(fit)["pw"]; sv <- sqrt(max(V[1,1], 0))
-  tv  <- cv/sv; pv <- 2*pt(-abs(tv), df=G-1)
-  st  <- function(p) ifelse(p<.001,"***",ifelse(p<.01,"**",
-                    ifelse(p<.05, "*",  ifelse(p<.10, ".", "ns"))))
-  list(coef=round(cv,4), se=round(sv,4), sig=st(pv),
-       z=round(tv,3), p=round(pv,4), n=n, G=G)
-}
 
 # =============================================================================
 # 8. RUN ONE MODEL
@@ -283,6 +244,7 @@ make_table <- function(results_list) {
       row[[paste0(nm,"_se")]]   <- get("SE")
       row[[paste0(nm,"_N")]]    <- get("N_obs")
       row[[paste0(nm,"_Ncty")]] <- get("N_countries")
+      row[[paste0(nm,"_SD")]]   <- get("SD_y")
     }
     out <- rbind(out, row)
   }
@@ -314,20 +276,10 @@ push_dom_t  <- run_lag("EPI",      "Domestic", "push")
 push_dom_l1 <- run_lag("EPI_lag1", "Domestic", "push")
 push_dom_l2 <- run_lag("EPI_lag2", "Domestic", "push")
 
-cat("\n=== PUSH: EPI x Ratio ===\n")
-push_rat_t  <- run_lag("EPI",      "Ratio", "push")
-push_rat_l1 <- run_lag("EPI_lag1", "Ratio", "push")
-push_rat_l2 <- run_lag("EPI_lag2", "Ratio", "push")
-
 cat("\n=== PULL: EPI x Foreign GVA ===\n")
 pull_for_t  <- run_lag("EPI",      "Foreign", "pull")
 pull_for_l1 <- run_lag("EPI_lag1", "Foreign", "pull")
 pull_for_l2 <- run_lag("EPI_lag2", "Foreign", "pull")
-
-cat("\n=== PULL: EPI x Ratio ===\n")
-pull_rat_t  <- run_lag("EPI",      "Ratio", "pull")
-pull_rat_l1 <- run_lag("EPI_lag1", "Ratio", "pull")
-pull_rat_l2 <- run_lag("EPI_lag2", "Ratio", "pull")
 
 # =============================================================================
 # 11. EXCEL EXPORT
@@ -371,15 +323,11 @@ add_sheet <- function(wb, name, data) {
 add_sheet(wb, "PUSH EPI Dom GVA t",  push_dom_t)
 add_sheet(wb, "PUSH EPI Dom GVA l1", push_dom_l1)
 add_sheet(wb, "PUSH EPI Dom GVA l2", push_dom_l2)
-add_sheet(wb, "PUSH EPI Ratio t",    push_rat_t)
-add_sheet(wb, "PUSH EPI Ratio l1",   push_rat_l1)
-add_sheet(wb, "PUSH EPI Ratio l2",   push_rat_l2)
+
 add_sheet(wb, "PULL EPI For GVA t",  pull_for_t)
 add_sheet(wb, "PULL EPI For GVA l1", pull_for_l1)
 add_sheet(wb, "PULL EPI For GVA l2", pull_for_l2)
-add_sheet(wb, "PULL EPI Ratio t",    pull_rat_t)
-add_sheet(wb, "PULL EPI Ratio l1",   pull_rat_l1)
-add_sheet(wb, "PULL EPI Ratio l2",   pull_rat_l2)
+
 
 saveWorkbook(wb, "PPML_Spec2_bylags.xlsx", overwrite=TRUE)
 cat("\nSaved: PPML_Spec2_bylags.xlsx\n")

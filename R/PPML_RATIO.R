@@ -31,7 +31,7 @@ drop_industries <- c("O84","T97T98")
 # =============================================================================
 # 2. LOAD DATA
 # =============================================================================
-df <- read_excel("COMPLETE_GVA.xlsx", sheet = "Sheet1")
+df <- read_excel("INPUT/COMPLETE_GVA.xlsx", sheet = "Sheet1")
 names(df) <- trimws(names(df))
 for (col in names(df)[!names(df) %in% c("REF_AREA","TIME_PERIOD")])
   df[[col]] <- suppressWarnings(as.numeric(df[[col]]))
